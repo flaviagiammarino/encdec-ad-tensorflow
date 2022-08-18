@@ -28,6 +28,9 @@ a = 100 + 10 * np.cos(2 * np.pi * (10 * t - 0.5)) + 0.5 * e[:, 0]
 b = 200 + 20 * np.cos(2 * np.pi * (20 * t - 0.4)) + 1.0 * e[:, 1]
 x = np.hstack([a.reshape(- 1, 1), b.reshape(- 1, 1)])
 
+
+
+
 # Fit the model
 model = EncDecAD(
     x=x,
