@@ -94,7 +94,7 @@ def plot(x, y, s, quantile):
                 mode='lines',
                 line=dict(
                     color='#b3b3b3',
-                    width=2
+                    width=1.5
                 )
             ),
             secondary_y=True,
@@ -109,7 +109,7 @@ def plot(x, y, s, quantile):
                 mode='lines',
                 line=dict(
                     color='#0550ae',
-                    width=1
+                    width=1.5
                 )
             ),
             row=rows[1],
