@@ -43,16 +43,16 @@ model.fit(
 )
 
 # Add some anomalies
-a = np.random.choice(a=[200 * p for p in range(1, N // 200 - 1)], replace=False, size=3)
-b = np.random.randint(low=15, high=30, size=3)
-for i in range(3):
-    x[a[i]: a[i] + b[i], :] = np.random.randint(low=30, high=60, size=2)
+a = np.random.choice(a=[200 * p for p in range(1, N // 200 - 1)], replace=False, size=4)
+b = np.random.randint(low=20, high=30, size=4)
+for i in range(4):
+    x[a[i]: a[i] + b[i], :] = np.random.randint(low=60, high=80, size=2)
 
 # Score the anomalies
 reconstructions, scores = model.predict(x=x)
 
 # Plot the anomalies
-fig = model.plot(quantile=0.97)
+fig = model.plot(quantile=0.95)
 fig.write_image('anomalies.png', width=700, height=800)
 ```
 ![anomalies](example/anomalies.png)
