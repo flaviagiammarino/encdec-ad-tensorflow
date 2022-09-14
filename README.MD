@@ -24,8 +24,8 @@ from encdec_ad_tensorflow.model import EncDecAD
 N = 2000
 t = np.linspace(0, 1, N)
 e = np.random.multivariate_normal(mean=np.zeros(2), cov=np.eye(2), size=N)
-a = 150 + 15 * np.cos(2 * np.pi * (15 * t - 0.5)) + 0.5 * e[:, 0]
-b = 200 + 20 * np.cos(2 * np.pi * (20 * t - 0.5)) + 0.5 * e[:, 1]
+a = 150 + 15 * np.cos(2 * np.pi * (15 * t - 0.5)) + 0.15 * e[:, 0]
+b = 200 + 20 * np.cos(2 * np.pi * (20 * t - 0.5)) + 0.20 * e[:, 1]
 x = np.hstack([a.reshape(- 1, 1), b.reshape(- 1, 1)])
 
 # Fit the model
@@ -44,15 +44,15 @@ model.fit(
 
 # Add some anomalies
 a = np.random.choice(a=[200 * p for p in range(1, N // 200 - 1)], replace=False, size=4)
-b = np.random.randint(low=20, high=30, size=4)
+b = np.random.randint(low=15, high=25, size=4)
 for i in range(4):
-    x[a[i]: a[i] + b[i], :] = np.random.randint(low=60, high=80, size=2)
+    x[a[i]: a[i] + b[i], :] = np.random.randint(low=60, high=70, size=2)
 
 # Score the anomalies
 reconstructions, scores = model.predict(x=x)
 
 # Plot the anomalies
-fig = model.plot(quantile=0.95)
+fig = model.plot(quantile=0.97)
 fig.write_image('anomalies.png', width=700, height=800)
 ```
 ![anomalies](example/anomalies.png)
