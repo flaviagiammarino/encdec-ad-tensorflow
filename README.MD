@@ -1,7 +1,9 @@
 # EncDec-AD TensorFlow
 
-![license](https://img.shields.io/github/license/flaviagiammarino/encdec-ad-tensorflow)
-![languages](https://img.shields.io/github/languages/top/flaviagiammarino/encdec-ad-tensorflow)
+![license](https://img.shields.io/github/license/flaviagiammarino/encdec-ad-tensorflow?color=green)
+![languages](https://img.shields.io/github/languages/top/flaviagiammarino/encdec-ad-tensorflow?color=blue)
+![stars](https://img.shields.io/github/stars/flaviagiammarino/encdec-ad-tensorflow?color=yellow)
+![forks](https://img.shields.io/github/forks/flaviagiammarino/encdec-ad-tensorflow?color=orange)
 
 TensorFlow implementation of multivariate time series anomaly detection model introduced in Malhotra, P., Ramakrishnan, A.,
 Anand, G., Vig, L., Agarwal, P. and Shroff, G., 2016. LSTM-based encoder-decoder for multi-sensor anomaly detection.
