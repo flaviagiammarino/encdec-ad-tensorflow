@@ -84,13 +84,13 @@ class EncDecAD():
                 output = model(data, training=True)
                 loss = tf.reduce_mean(tf.reduce_sum((data - output) ** 2, axis=-1))
         
-                # Calculate the gradient.
-                gradient = tape.gradient(loss, model.trainable_variables)
-        
-                # Update the weights.
-                optimizer.apply_gradients(zip(gradient, model.trainable_variables))
-        
-                return loss
+            # Calculate the gradient.
+            gradient = tape.gradient(loss, model.trainable_variables)
+    
+            # Update the weights.
+            optimizer.apply_gradients(zip(gradient, model.trainable_variables))
+    
+            return loss
 
         # Train the model.
         for epoch in range(epochs):
