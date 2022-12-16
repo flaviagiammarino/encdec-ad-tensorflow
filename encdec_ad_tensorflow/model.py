@@ -3,7 +3,6 @@ import pandas as pd
 import tensorflow as tf
 
 from encdec_ad_tensorflow.modules import EncoderDecoder
-from encdec_ad_tensorflow.plots import plot
 
 class EncDecAD():
     
@@ -12,7 +11,6 @@ class EncDecAD():
         '''
         Implementation of multivariate time series anomaly detection model introduced in Malhotra, P., Ramakrishnan, A.,
         Anand, G., Vig, L., Agarwal, P. and Shroff, G., 2016. LSTM-based encoder-decoder for multi-sensor anomaly detection.
-        arXiv preprint arXiv:1607.00148. https://arxiv.org/abs/1607.00148.
 
         Parameters:
         __________________________________
@@ -110,32 +108,28 @@ class EncDecAD():
         Parameters:
         __________________________________
         x: np.array.
-            Time series, array with shape (samples, features) where samples is the length of the time series
-            and features is the number of time series.
+            Actual time series, array with shape (samples, features) where samples is the length
+            of the time series and features is the number of time series.
 
         Returns:
         __________________________________
-        reconstructions: pd.DataFrame.
-            Data frame with reconstructed time series.
-        
-        scores: pd.DataFrame.
-            Data frame with anomaly scores.
+        x_hat: np.array.
+            Reconstructed time series, array with shape (samples, features) where samples is the
+            length of the time series and features is the number of time series.
+    
+        scores: np.array.
+            Anomaly scores, array with shape (samples,) where samples is the length of the time
+            series.
         '''
     
         if x.shape[1] != self.features:
             raise ValueError(f'Expected {self.features} features, found {x.shape[1]}.')
     
         else:
-        
-            # Save the time series.
-            self.actual = pd.DataFrame(x)
-        
-            # Scale the time series.
-            x = (x - self.x_min) / (self.x_max - self.x_min)
-        
-            # Generate the input sequences.
+
+            # Generate the reconstructions.
             dataset = tf.keras.utils.timeseries_dataset_from_array(
-                data=tf.cast(x, tf.float32),
+                data=tf.cast((x - self.x_min) / (self.x_max - self.x_min), tf.float32),
                 targets=None,
                 sequence_length=self.timesteps,
                 sequence_stride=self.timesteps,
@@ -143,42 +137,14 @@ class EncDecAD():
                 shuffle=False
             )
         
-            # Generate the reconstructions.
-            outputs = tf.concat([self.model(data, training=False) for data in dataset], axis=0).numpy()
-            reconstructions = pd.DataFrame()
-            for i in range(outputs.shape[0]):
-                reconstructions = pd.concat([reconstructions, pd.DataFrame(outputs[i, :, :])], axis=0, ignore_index=True)
-            reconstructions = self.x_min + (self.x_max - self.x_min) * reconstructions
+            x_hat = np.concatenate([self.model(data, training=False).numpy() for data in dataset], axis=0)
+            x_hat = np.concatenate([x_hat[i, :, :] for i in range(x_hat.shape[0])], axis=0)
+            x_hat = self.x_min + (self.x_max - self.x_min) * x_hat
 
             # Calculate the anomaly scores.
-            errors = (self.actual - reconstructions).abs()
-            mu = errors.mean().values.reshape(-1, 1)
-            sigma = errors.cov().values
-            scores = pd.DataFrame()
-            for i in range(errors.shape[0]):
-                e = errors.iloc[i, :].values.reshape(-1, 1)
-                scores = pd.concat([scores, pd.DataFrame(np.dot(np.dot((e - mu).T, np.linalg.inv(sigma)), (e - mu)))], axis=0, ignore_index=True)
-        
-            # Save the results.
-            self.reconstructions = reconstructions
-            self.scores = scores
-            
-            return reconstructions, scores
+            errors = np.abs(x - x_hat)
+            mu = np.mean(errors, axis=0)
+            sigma = np.cov(errors, rowvar=False)
+            scores = np.array([np.dot(np.dot((errors[i, :] - mu).T, np.linalg.inv(sigma)), (errors[i, :] - mu)) for i in range(errors.shape[0])])
 
-    def plot(self, quantile):
-    
-        '''
-        Plot the results.
-        
-        Parameters:
-        __________________________________
-        quantile: float.
-            Quantile of anomaly score used for identifying the anomalies.
-            
-        Returns:
-        __________________________________
-        go.Figure.
-        '''
-    
-        return plot(x=self.actual.values, y=self.reconstructions.values, s=self.scores.values.flatten(), quantile=quantile)
-    
+            return x_hat, scores

@@ -1,7 +1,9 @@
 import numpy as np
-from encdec_ad_tensorflow.model import EncDecAD
 
-# Generate two time series
+from encdec_ad_tensorflow.model import EncDecAD
+from encdec_ad_tensorflow.plots import plot
+
+# Generate some time series
 N = 2000
 t = np.linspace(0, 1, N)
 e = np.random.multivariate_normal(mean=np.zeros(2), cov=np.eye(2), size=N)
@@ -19,7 +21,7 @@ model = EncDecAD(
 model.fit(
     learning_rate=0.001,
     batch_size=32,
-    epochs=400,
+    epochs=500,
     verbose=True
 )
 
@@ -30,8 +32,8 @@ for i in range(4):
     x[a[i]: a[i] + b[i], :] = np.random.randint(low=60, high=70, size=2)
 
 # Score the anomalies
-reconstructions, scores = model.predict(x=x)
+x_hat, scores = model.predict(x=x)
 
 # Plot the anomalies
-fig = model.plot(quantile=0.97)
-fig.write_image('anomalies.png', width=700, height=800)
+fig = plot(x=x, x_hat=x_hat, scores=scores, quantile=0.97)
+fig.write_image('results.png', scale=4, height=900, width=700)
