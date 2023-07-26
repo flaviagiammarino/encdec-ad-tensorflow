@@ -1,49 +1,28 @@
-import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-def plot(x, x_hat, scores, quantile):
-    
+def plot(xn, xa, rn, ra, an, aa, tau):
     '''
-    Plot the actual and reconstructed values of the time series and annotate the anomalies.
-
-    Parameters:
-    __________________________________
-    x: np.array.
-        Actual time series, array with shape (samples, features) where samples is the length
-        of the time series and features is the number of time series.
-
-    x_hat: np.array.
-        Reconstructed time series, array with shape (samples, features) where samples is the
-        length of the time series and features is the number of time series.
-
-    scores: np.array.
-        Anomaly scores, array with shape (samples,) where samples is the length of the time
-        series.
-
-    quantile: float.
-        Quantile of anomaly score used for identifying the anomalies.
-
-    Returns:
-    __________________________________
-    fig: go.Figure.
-        Line charts of actual and reconstructed values with annotated anomalies,
-        two subplots for each time series.
+    Plot the results.
     '''
 
-    if x.shape[1] == x_hat.shape[1]:
-        features = x.shape[1]
+    if xn.shape[1] == xa.shape[1] == rn.shape[1] == ra.shape[1]:
+        m = xn.shape[1]
     else:
-        raise ValueError(f'Expected {x.shape[1]} features, found {y.shape[1]}.')
-
+        raise ValueError('Found inconsistent number of time series.')
+    
     fig = make_subplots(
-        subplot_titles=['Feature ' + str(i + 1) + ' ' + s for i in range(features) for s in ['(Actual)', '(Reconstructed)']],
-        specs=[[{'secondary_y': True}], [{'secondary_y': False}]] * features,
-        vertical_spacing=0.125,
-        rows=2 * features,
-        cols=1
+        subplot_titles=[f'Time Series {i} - Actual (Normal)' for i in range(1, m + 1)] +
+                       [f'Time Series {i} - Anomaly Score (Normal)' for i in range(1, m + 1)] +
+                       [f'Time Series {i} - Reconstructed (Normal)' for i in range(1, m + 1)] +
+                       [f'Time Series {i} - Actual (Anomalous)' for i in range(1, m + 1)] +
+                       [f'Time Series {i} - Anomaly Score (Anomalous)' for i in range(1, m + 1)] +
+                       [f'Time Series {i} - Reconstructed (Anomalous)' for i in range(1, m + 1)],
+        vertical_spacing=0.075,
+        rows=6,
+        cols=m
     )
-
+    
     fig.update_layout(
         plot_bgcolor='white',
         paper_bgcolor='white',
@@ -63,126 +42,151 @@ def plot(x, x_hat, scores, quantile):
             orientation='h'
         ),
     )
-
+    
     fig.update_annotations(
         font=dict(
             color='#1b1f24',
-            size=12,
+            size=10,
         )
     )
-
-    rows = [1, 2]
     
-    for i in range(features):
+    for i in range(m):
         
         fig.add_trace(
             go.Scatter(
-                y=x[:, i],
-                showlegend=True if i == 0 else False,
-                name='Actual',
+                y=xn[:, i],
+                showlegend=False,
                 mode='lines',
                 line=dict(
-                    color='#afb8c1',
-                    width=1
+                    color='rgba(175,184,193,1)',
+                    width=0.5
                 )
             ),
-            row=rows[0],
-            col=1
+            row=1,
+            col=1 + i
         )
-        
+
         fig.add_trace(
             go.Scatter(
-                y=x_hat[:, i],
-                showlegend=True if i == 0 else False,
-                name='Reconstructed',
+                y=an,
+                showlegend=False,
                 mode='lines',
                 line=dict(
-                    color='#0969da',
-                    width=1
+                    color='rgba(207, 34, 46,1)',
+                    width=0.5
                 )
             ),
-            row=rows[1],
-            col=1
+            row=2,
+            col=1 + i
+        )
+        
+        fig.add_hline(
+            y=tau,
+            line=dict(
+                dash='dot',
+                color='#000000',
+                width=0.5,
+            ),
+            row=2,
+            col=1 + i
         )
         
         fig.add_trace(
             go.Scatter(
-                y=np.where(scores > np.quantile(scores, quantile), x[:, i], np.nan),
-                showlegend=True if i == 0 else False,
-                name='Anomaly',
-                legendgroup='Anomaly',
-                mode='markers',
-                marker=dict(
-                    color='#cf222e',
-                    size=3,
-                    line=dict(
-                        width=0
-                    )
+                y=rn[:, i],
+                showlegend=False,
+                mode='lines',
+                line=dict(
+                    color='rgba(9, 105, 218,1)',
+                    width=0.5
                 )
             ),
-            row=rows[0],
-            col=1
+            row=3,
+            col=1 + i
         )
         
-        fig.update_xaxes(
-            title='Time',
-            color='#424a53',
-            tickfont=dict(
-                color='#6e7781',
-                size=6,
+        fig.add_trace(
+            go.Scatter(
+                y=xa[:, i],
+                showlegend=False,
+                mode='lines',
+                line=dict(
+                    color='rgba(175,184,193,1)',
+                    width=0.5
+                )
             ),
-            linecolor='#eaeef2',
-            mirror=True,
-            showgrid=False,
-            row=rows[0],
-            col=1
+            row=4,
+            col=1 + i
+        )
+    
+        fig.add_trace(
+            go.Scatter(
+                y=aa,
+                showlegend=False,
+                mode='lines',
+                line=dict(
+                    color='rgba(207, 34, 46,1)',
+                    width=0.5
+                )
+            ),
+            row=5,
+            col=1 + i
         )
         
-        fig.update_yaxes(
-            title='Value',
-            color='#424a53',
-            tickfont=dict(
-                color='#6e7781',
-                size=6,
+        fig.add_hline(
+            y=tau,
+            line=dict(
+                dash='dot',
+                color='#000000',
+                width=0.5,
             ),
-            linecolor='#eaeef2',
-            mirror=True,
-            showgrid=False,
-            zeroline=False,
-            row=rows[0],
-            col=1
+            row=5,
+            col=1 + i
         )
         
-        fig.update_xaxes(
-            title='Time',
-            color='#424a53',
-            tickfont=dict(
-                color='#6e7781',
-                size=6,
+        fig.add_trace(
+            go.Scatter(
+                y=ra[:, i],
+                showlegend=False,
+                mode='lines',
+                line=dict(
+                    color='rgba(9, 105, 218,1)',
+                    width=0.5
+                )
             ),
-            linecolor='#eaeef2',
-            mirror=True,
-            showgrid=False,
-            row=rows[1],
-            col=1
+            row=6,
+            col=1 + i
         )
-
-        fig.update_yaxes(
-            title='Value',
-            color='#424a53',
-            tickfont=dict(
-                color='#6e7781',
-                size=6,
-            ),
-            linecolor='#eaeef2',
-            mirror=True,
-            showgrid=False,
-            zeroline=False,
-            row=rows[1],
-            col=1
-        )
-
-        rows[0] += 2
-        rows[1] += 2
+        
+        for row in range(1, 7):
+            
+            fig.update_xaxes(
+                title='Time',
+                color='#424a53',
+                tickfont=dict(
+                    color='#6e7781',
+                    size=6,
+                ),
+                linecolor='#eaeef2',
+                mirror=True,
+                showgrid=False,
+                row=row,
+                col=1 + i
+            )
+            
+            fig.update_yaxes(
+                title='Value',
+                color='#424a53',
+                tickfont=dict(
+                    color='#6e7781',
+                    size=6,
+                ),
+                linecolor='#eaeef2',
+                mirror=True,
+                showgrid=False,
+                zeroline=False,
+                row=row,
+                col=1 + i
+            )
     
     return fig

@@ -1,150 +1,221 @@
 import numpy as np
-import pandas as pd
 import tensorflow as tf
+from sklearn.model_selection import train_test_split
 
 from encdec_ad_tensorflow.modules import EncoderDecoder
 
 class EncDecAD():
     
-    def __init__(self, x, units, timesteps):
+    def __init__(self, m, L=10, c=100, beta=0.1, num=100):
     
         '''
-        Implementation of multivariate time series anomaly detection model introduced in Malhotra, P., Ramakrishnan, A.,
-        Anand, G., Vig, L., Agarwal, P. and Shroff, G., 2016. LSTM-based encoder-decoder for multi-sensor anomaly detection.
-
-        Parameters:
-        __________________________________
-        x: np.array.
-            Time series, array with shape (samples, features) where samples is the length of the time series and features
-            is the number of time series.
-
-        units: int.
-            Number of hidden units of the LSTM layers.
-            
-        timesteps: int.
-            Number of time steps.
+        Implementation of time series anomaly detection model introduced in Malhotra, P., Ramakrishnan, A.,
+        Anand, G., Vig, L., Agarwal, P. and Shroff, G., 2016. LSTM-based encoder-decoder for multi-sensor
+        anomaly detection.
         '''
         
-        self.x = x
-        self.x_min = np.min(x, axis=0)
-        self.x_max = np.max(x, axis=0)
-        self.samples = x.shape[0]
-        self.features = x.shape[1]
-        self.units = units
-        self.timesteps = timesteps
-
-    def fit(self, learning_rate=0.001, batch_size=32, epochs=100, verbose=True):
+        self.m = m
+        self.c = c
+        self.L = L
+        self.beta = beta
+        self.num = num
+    
+    def fit(self,
+            xn,
+            xa,
+            learning_rate=0.001,
+            batch_size=32,
+            max_epochs=100,
+            early_stopping_start_epoch=100,
+            early_stopping_patience=10,
+            verbose=1):
         
         '''
         Train the model.
-
-        Parameters:
-        __________________________________
-        learning_rate: float.
-            Learning rate.
-
-        batch_size: int.
-            Batch size.
-
-        epochs: int.
-            Number of epochs.
-
-        verbose: bool.
-            True if the training history should be printed in the console, False otherwise.
         '''
-    
-        # Scale the time series.
-        x = (self.x - self.x_min) / (self.x_max - self.x_min)
+       
+        # Split the time series into sequences.
+        x_sn = time_series_to_sequences(xn, self.L)
+        x_va = time_series_to_sequences(xa, self.L)
+        
+        # Split the normal sequences into a training set and two validation sets.
+        x_sn, x_vn = train_test_split(x_sn, test_size=0.5, random_state=42)
+        x_vn1, x_vn2 = train_test_split(x_vn, test_size=0.5, random_state=42)
+        
+        # Calculate the scaling parameters.
+        x_min = np.nanmin(x_sn, axis=0, keepdims=True)
+        x_max = np.nanmax(x_sn, axis=0, keepdims=True)
+        
+        # Scale the sequences.
+        x_sn = (x_sn - x_min) / (x_max - x_min)
+        x_vn1 = (x_vn1 - x_min) / (x_max - x_min)
+        x_vn2 = (x_vn2 - x_min) / (x_max - x_min)
+        x_va = (x_va - x_min) / (x_max - x_min)
+        
+        # Build the training dataset.
+        train_dataset = tf.data.Dataset.from_tensor_slices((x_sn, reverse_sequences(x_sn)))
+        train_dataset = train_dataset.cache().shuffle(len(x_sn)).batch(batch_size).prefetch(tf.data.experimental.AUTOTUNE)
 
-        # Generate the input sequences.
-        dataset = tf.keras.utils.timeseries_dataset_from_array(
-            data=tf.cast(x, tf.float32),
-            targets=None,
-            sequence_length=self.timesteps,
-            sequence_stride=self.timesteps,
-            batch_size=batch_size,
-            shuffle=True
-        )
+        # Build the validation dataset.
+        valid_dataset = tf.data.Dataset.from_tensor_slices((x_vn1, reverse_sequences(x_vn1)))
+        valid_dataset = valid_dataset.batch(batch_size)
         
         # Build the model.
-        inputs = tf.keras.layers.Input(shape=(self.timesteps, self.features))
-        outputs = EncoderDecoder(units=self.units)(inputs)
-        model = tf.keras.models.Model(inputs, outputs)
-        
-        # Define the training loop.
-        optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
-
-        @tf.function
-        def train_step(data):
-            with tf.GradientTape() as tape:
-                
-                # Calculate the loss.
-                output = model(data, training=True)
-                loss = tf.reduce_mean(tf.reduce_sum((data - output) ** 2, axis=-1))
-        
-            # Calculate the gradient.
-            gradient = tape.gradient(loss, model.trainable_variables)
-    
-            # Update the weights.
-            optimizer.apply_gradients(zip(gradient, model.trainable_variables))
-    
-            return loss
+        model = EncoderDecoder(L=self.L, m=self.m, c=self.c)
 
         # Train the model.
-        for epoch in range(epochs):
-            for data in dataset:
-                loss = train_step(data)
-            if verbose:
-                print('epoch: {}, loss: {:,.6f}'.format(1 + epoch, loss))
+        model.compile(
+            optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
+            loss=tf.keras.losses.MeanSquaredError()
+        )
 
-        # Save the model.
-        self.model = model
+        callback = tf.keras.callbacks.EarlyStopping(
+            monitor='val_loss',
+            mode='min',
+            min_delta=0,
+            patience=early_stopping_patience,
+            start_from_epoch=early_stopping_start_epoch,
+            restore_best_weights=True
+        )
 
-    def predict(self, x):
-    
-        '''
-        Reconstruct the time series and score the anomalies.
-
-        Parameters:
-        __________________________________
-        x: np.array.
-            Actual time series, array with shape (samples, features) where samples is the length
-            of the time series and features is the number of time series.
-
-        Returns:
-        __________________________________
-        x_hat: np.array.
-            Reconstructed time series, array with shape (samples, features) where samples is the
-            length of the time series and features is the number of time series.
-    
-        scores: np.array.
-            Anomaly scores, array with shape (samples,) where samples is the length of the time
-            series.
-        '''
-    
-        if x.shape[1] != self.features:
-            raise ValueError(f'Expected {self.features} features, found {x.shape[1]}.')
-    
-        else:
-
-            # Generate the reconstructions.
-            dataset = tf.keras.utils.timeseries_dataset_from_array(
-                data=tf.cast((x - self.x_min) / (self.x_max - self.x_min), tf.float32),
-                targets=None,
-                sequence_length=self.timesteps,
-                sequence_stride=self.timesteps,
-                batch_size=1,
-                shuffle=False
-            )
+        model.fit(
+            train_dataset,
+            epochs=max_epochs,
+            validation_data=valid_dataset,
+            callbacks=[callback],
+            verbose=verbose
+        )
         
-            x_hat = np.concatenate([self.model(data, training=False).numpy() for data in dataset], axis=0)
-            x_hat = np.concatenate([x_hat[i, :, :] for i in range(x_hat.shape[0])], axis=0)
-            x_hat = self.x_min + (self.x_max - self.x_min) * x_hat
+        # Generate the reconstructions.
+        r_vn1 = model(x_vn1, training=False)
+        r_vn2 = model(x_vn2, training=False)
+        r_va = model(x_va, training=False)
 
-            # Calculate the anomaly scores.
-            errors = np.abs(x - x_hat)
-            mu = np.mean(errors, axis=0)
-            sigma = np.cov(errors, rowvar=False)
-            scores = np.array([np.dot(np.dot((errors[i, :] - mu).T, np.linalg.inv(sigma)), (errors[i, :] - mu)) for i in range(errors.shape[0])])
+        # Calculate the reconstruction errors.
+        e_vn1 = tf.math.abs(x_vn1 - r_vn1)
+        e_vn2 = tf.math.abs(x_vn2 - r_vn2)
+        e_va = tf.math.abs(x_va - r_va)
 
-            return x_hat, scores
+        # Calculate the mean vector and covariance matrix.
+        mu, sigma = get_mu_and_sigma(x=sequences_to_time_series(e_vn1))
+
+        # Calculate the anomaly scores.
+        a_vn2 = get_anomaly_scores(e_vn2, mu, sigma)
+        a_va = get_anomaly_scores(e_va, mu, sigma)
+
+        # Find the best threshold.
+        tau = get_anomaly_threshold(
+            an=a_vn2,
+            aa=a_va,
+            beta=self.beta,
+            num=self.num
+        )
+        
+        self.model = model
+        self.mu = mu
+        self.sigma = sigma
+        self.tau = tau
+        self.x_min = x_min
+        self.x_max = x_max
+    
+    def predict(self, x):
+        
+        # Split the time series into sequences
+        x = time_series_to_sequences(x, self.L)
+        
+        # Scale the sequences.
+        x = (x - self.x_min) / (self.x_max - self.x_min)
+        
+        # Generate the reconstructions.
+        r = self.model(x, training=False)
+        
+        # Calculate the reconstruction errors.
+        e = tf.math.abs(x - r)
+
+        # Calculate the anomaly scores.
+        a = get_anomaly_scores(e, self.mu, self.sigma)
+
+        # Calculate the anomaly labels.
+        y = get_anomaly_labels(a, self.tau)
+        
+        # Transform the reconstructions back to the original scale.
+        r = self.x_min + (self.x_max - self.x_min) * r
+
+        # Transform the sequences back to time series.
+        r = sequences_to_time_series(r)
+        a = sequences_to_time_series(a)
+        y = np.concatenate([np.repeat(y[i], repeats=self.L, axis=0) for i in range(y.shape[0])], axis=0)
+        
+        return r, a, y
+
+
+def time_series_to_sequences(x, L):
+    # Split the time series into sequences.
+    if len(x) % L == 0:
+        return np.array([x[i - L: i] for i in range(L, L * len(x) // L + L, L)])
+    else:
+        return np.array([x[i - L: i] for i in range(L, L * len(x) // L, L)])
+
+
+def sequences_to_time_series(x):
+    # Transform the sequences back to time series.
+    return np.concatenate([x[i] for i in range(len(x))])
+
+
+def reverse_sequences(x):
+    # Reverse the order of the sequences.
+    return np.concatenate([np.expand_dims(np.flip(x[i], axis=0), axis=0) for i in range(len(x))], axis=0)
+
+
+def get_mu_and_sigma(x):
+    # Calculate the mean vector and covariance matrix.
+    mu = tf.reduce_mean(x, axis=0, keepdims=True)
+    sigma = tf.divide(tf.matmul(x - tf.reduce_mean(x, axis=0), x - tf.reduce_mean(x, axis=0), transpose_a=True), x.shape[0] - 1)
+    return mu, sigma
+
+
+def get_anomaly_scores(x, mu, sigma):
+    # Calculate the anomaly scores.
+    fn = lambda x: tf.squeeze(tf.matmul(tf.matmul(x - mu, tf.linalg.inv(sigma)), x - mu, transpose_b=True))
+    return tf.transpose([tf.map_fn(elems=x[:, i, :], fn=fn) for i in range(x.shape[1])], perm=(1, 0))
+
+
+def get_anomaly_labels(a, tau):
+    # Derive the anomaly labels.
+    return tf.where(tf.reduce_any(a > tau, axis=1, keepdims=True), 1., 0.)
+    
+
+def get_anomaly_threshold(an, aa, beta, num):
+    
+    # Concatenate the anomaly scores.
+    a = tf.concat([an, aa], axis=0)
+    
+    # Define the list of thresholds.
+    taus = tf.linspace(start=tf.reduce_min(a), stop=tf.reduce_max(a), num=num)
+
+    # Instantiate the F-beta scorer.
+    scorer = tf.metrics.FBetaScore(beta=beta)
+    
+    # Create a tensor for storing the F-beta scores of the thresholds.
+    scores = tf.TensorArray(
+        element_shape=(),
+        size=num,
+        dynamic_size=False,
+        dtype=tf.float32,
+        clear_after_read=False
+    )
+    
+    # Derive the ground-truth anomaly labels.
+    y_true = tf.concat([tf.zeros((an.shape[0], 1)), tf.ones((aa.shape[0], 1))], axis=0)
+    
+    # Loop across the thresholds.
+    for i in tf.range(start=0, limit=num, delta=1):
+        
+        # Derive the predicted anomaly labels.
+        y_pred = get_anomaly_labels(a, tau=taus[i])
+        
+        # Calculate and save the F-beta score.
+        scores = scores.write(index=i, value=tf.squeeze(scorer(y_true, y_pred)))
+    
+    # Return the threshold with the maximum F-beta score.
+    return taus[tf.argmax(scores.stack())]
