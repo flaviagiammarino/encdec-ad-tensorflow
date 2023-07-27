@@ -36,8 +36,9 @@ class EncDecAD():
        
         # Process the normal time series.
         x_sn = tf.cast(xn[:int(train_size * len(xn))], dtype=tf.float32)
-        x_vn = tf.cast(xn[int(train_size * len(xn)):], dtype=tf.float32)
-        y_vn = tf.zeros(len(x_vn), dtype=tf.float32)
+        x_vn1 = tf.cast(xn[int(train_size * len(xn)): - int(train_size * len(xn) / 2)], dtype=tf.float32)
+        x_vn2 = tf.cast(xn[- int(train_size * len(xn) / 2):], dtype=tf.float32)
+        y_vn2 = tf.zeros(len(x_vn2), dtype=tf.float32)
         
         # Process the anomalous time series.
         x_va = tf.cast(xa, dtype=tf.float32)
@@ -45,13 +46,15 @@ class EncDecAD():
         
         # Make sure that the length of the time series is a multiple of the sequence length.
         x_sn = x_sn[:self.L * (len(x_sn) // self.L)]
-        x_vn = x_vn[:self.L * (len(x_vn) // self.L)]
+        x_vn1 = x_vn1[:self.L * (len(x_vn1) // self.L)]
+        x_vn2 = x_vn2[:self.L * (len(x_vn2) // self.L)]
         x_va = x_va[:self.L * (len(x_va) // self.L)]
         y_va = y_va[:self.L * (len(y_va) // self.L)]
         
         # Split the time series into sequences.
         xs_sn = time_series_to_sequences(x_sn, L=self.L)
-        xs_vn = time_series_to_sequences(x_vn, L=self.L)
+        xs_vn1 = time_series_to_sequences(x_vn1, L=self.L)
+        xs_vn2 = time_series_to_sequences(x_vn2, L=self.L)
         xs_va = time_series_to_sequences(x_va, L=self.L)
 
         # Calculate the scaling factors.
@@ -60,7 +63,8 @@ class EncDecAD():
 
         # Scale the time series.
         xs_sn = (xs_sn - x_min) / (x_max - x_min)
-        xs_vn = (xs_vn - x_min) / (x_max - x_min)
+        xs_vn1 = (xs_vn1 - x_min) / (x_max - x_min)
+        xs_vn2 = (xs_vn2 - x_min) / (x_max - x_min)
         xs_va = (xs_va - x_min) / (x_max - x_min)
         
         # Build the training dataset.
@@ -68,7 +72,7 @@ class EncDecAD():
         train_dataset = train_dataset.cache().shuffle(len(xs_sn)).batch(batch_size).prefetch(tf.data.experimental.AUTOTUNE)
 
         # Build the validation dataset.
-        valid_dataset = tf.data.Dataset.from_tensor_slices((xs_vn, reverse_sequences(xs_vn)))
+        valid_dataset = tf.data.Dataset.from_tensor_slices((xs_vn1, reverse_sequences(xs_vn1)))
         valid_dataset = valid_dataset.batch(batch_size)
         
         # Build the model.
@@ -102,33 +106,37 @@ class EncDecAD():
         )
         
         # Generate the reconstructions.
-        rs_vn = model(xs_vn, training=False)
+        rs_vn1 = model(xs_vn1, training=False)
+        rs_vn2 = model(xs_vn2, training=False)
         rs_va = model(xs_va, training=False)
 
         # Transform the reconstructions back to the original scale.
-        rs_vn = x_min + (x_max - x_min) * rs_vn
+        rs_vn1 = x_min + (x_max - x_min) * rs_vn1
+        rs_vn2 = x_min + (x_max - x_min) * rs_vn2
         rs_va = x_min + (x_max - x_min) * rs_va
         
         # Transform the reconstructions back to time series.
-        r_vn = sequences_to_time_series(rs_vn)
+        r_vn1 = sequences_to_time_series(rs_vn1)
+        r_vn2 = sequences_to_time_series(rs_vn2)
         r_va = sequences_to_time_series(rs_va)
         
         # Calculate the reconstruction errors.
-        e_vn = tf.math.abs(x_vn - r_vn)
+        e_vn1 = tf.math.abs(x_vn1 - r_vn1)
+        e_vn2 = tf.math.abs(x_vn2 - r_vn2)
         e_va = tf.math.abs(x_va - r_va)
 
         # Calculate the mean vector and covariance matrix.
-        mu = tf.reduce_mean(e_vn, axis=0, keepdims=True)
-        sigma = tf.matmul(e_vn - mu, e_vn - mu, transpose_a=True) / (len(e_vn) - 1)
+        mu = tf.reduce_mean(e_vn1, axis=0, keepdims=True)
+        sigma = tf.matmul(e_vn1 - mu, e_vn1 - mu, transpose_a=True) / (len(e_vn1) - 1)
         
         # Calculate the anomaly scores.
         a_va = get_anomaly_scores(e_va, mu, sigma)
-        a_vn = get_anomaly_scores(e_vn, mu, sigma)
+        a_vn2 = get_anomaly_scores(e_vn2, mu, sigma)
         
         # Find the best anomaly threshold.
         tau = get_anomaly_threshold(
-            a=tf.concat([a_va, a_vn], axis=0),
-            y=tf.concat([y_va, y_vn], axis=0),
+            a=tf.concat([a_va, a_vn2], axis=0),
+            y=tf.concat([y_va, y_vn2], axis=0),
             beta=self.beta,
             num=self.num
         )
