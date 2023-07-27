@@ -85,7 +85,7 @@ def plot(xn, xa, rn, ra, an, aa, tau):
             line=dict(
                 dash='dot',
                 color='#000000',
-                width=0.5,
+                width=1,
             ),
             row=2,
             col=1 + i
@@ -138,7 +138,7 @@ def plot(xn, xa, rn, ra, an, aa, tau):
             line=dict(
                 dash='dot',
                 color='#000000',
-                width=0.5,
+                width=1,
             ),
             row=5,
             col=1 + i

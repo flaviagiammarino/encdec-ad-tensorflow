@@ -1,5 +1,6 @@
 pandas==2.0.3
 numpy==1.24.3
+scikit-learn==1.2.2
 tensorflow==2.13.0
 plotly==5.15.0
 kaleido==0.2.1

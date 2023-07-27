@@ -1,6 +1,5 @@
-import numpy as np
 import tensorflow as tf
-from sklearn.model_selection import train_test_split
+from sklearn.metrics import fbeta_score
 
 from encdec_ad_tensorflow.modules import EncoderDecoder
 
@@ -9,60 +8,73 @@ class EncDecAD():
     def __init__(self, m, L=10, c=100, beta=0.1, num=100):
     
         '''
-        Implementation of time series anomaly detection model introduced in Malhotra, P., Ramakrishnan, A.,
-        Anand, G., Vig, L., Agarwal, P. and Shroff, G., 2016. LSTM-based encoder-decoder for multi-sensor
-        anomaly detection.
+        Implementation of multivariate time series anomaly detection model introduced in Malhotra, P., Ramakrishnan, A.,
+        Anand, G., Vig, L., Agarwal, P. and Shroff, G., 2016. LSTM-based encoder-decoder for multi-sensor anomaly detection.
         '''
         
         self.m = m
         self.c = c
         self.L = L
-        self.beta = beta
+        self.beta = float(beta)
         self.num = num
     
     def fit(self,
             xn,
             xa,
+            ya,
+            train_size=0.5,
             learning_rate=0.001,
             batch_size=32,
             max_epochs=100,
-            early_stopping_start_epoch=100,
-            early_stopping_patience=10,
+            early_stopping_start_epoch=10,
+            early_stopping_patience=1,
             verbose=1):
         
         '''
         Train the model.
         '''
        
+        # Process the (unlabelled) normal time series.
+        x_sn = tf.cast(xn[:int(train_size * len(xn))], dtype=tf.float32)
+        x_vn = tf.cast(xn[int(train_size * len(xn)):], dtype=tf.float32)
+        
+        # Process the (labelled) anomalous time series.
+        x_va = tf.cast(xa, dtype=tf.float32)
+        
+        # Make sure that the length of the time series is a multiple of the sequence length.
+        x_sn = tf.cast(x_sn[:self.L * (len(x_sn) // self.L)], dtype=tf.float32)
+        x_vn = tf.cast(x_vn[:self.L * (len(x_vn) // self.L)], dtype=tf.float32)
+        x_va = tf.cast(x_va[:self.L * (len(x_va) // self.L)], dtype=tf.float32)
+        
         # Split the time series into sequences.
-        x_sn = time_series_to_sequences(xn, self.L)
-        x_va = time_series_to_sequences(xa, self.L)
-        
-        # Split the normal sequences into a training set and two validation sets.
-        x_sn, x_vn = train_test_split(x_sn, test_size=0.5, random_state=42)
-        x_vn1, x_vn2 = train_test_split(x_vn, test_size=0.5, random_state=42)
-        
-        # Calculate the scaling parameters.
-        x_min = np.nanmin(x_sn, axis=0, keepdims=True)
-        x_max = np.nanmax(x_sn, axis=0, keepdims=True)
-        
-        # Scale the sequences.
-        x_sn = (x_sn - x_min) / (x_max - x_min)
-        x_vn1 = (x_vn1 - x_min) / (x_max - x_min)
-        x_vn2 = (x_vn2 - x_min) / (x_max - x_min)
-        x_va = (x_va - x_min) / (x_max - x_min)
+        xs_sn = time_series_to_sequences(x_sn, L=self.L)
+        xs_vn = time_series_to_sequences(x_vn, L=self.L)
+        xs_va = time_series_to_sequences(x_va, L=self.L)
+
+        # Calculate the scaling factors.
+        x_min = tf.reduce_min(xs_sn, axis=0, keepdims=True)
+        x_max = tf.reduce_max(xs_sn, axis=0, keepdims=True)
+
+        # Scale the time series.
+        xs_sn = (xs_sn - x_min) / (x_max - x_min)
+        xs_vn = (xs_vn - x_min) / (x_max - x_min)
+        xs_va = (xs_va - x_min) / (x_max - x_min)
         
         # Build the training dataset.
-        train_dataset = tf.data.Dataset.from_tensor_slices((x_sn, reverse_sequences(x_sn)))
-        train_dataset = train_dataset.cache().shuffle(len(x_sn)).batch(batch_size).prefetch(tf.data.experimental.AUTOTUNE)
+        train_dataset = tf.data.Dataset.from_tensor_slices((xs_sn, reverse_sequences(xs_sn)))
+        train_dataset = train_dataset.cache().shuffle(len(xs_sn)).batch(batch_size).prefetch(tf.data.experimental.AUTOTUNE)
 
         # Build the validation dataset.
-        valid_dataset = tf.data.Dataset.from_tensor_slices((x_vn1, reverse_sequences(x_vn1)))
+        valid_dataset = tf.data.Dataset.from_tensor_slices((xs_vn, reverse_sequences(xs_vn)))
         valid_dataset = valid_dataset.batch(batch_size)
         
         # Build the model.
-        model = EncoderDecoder(L=self.L, m=self.m, c=self.c)
-
+        model = EncoderDecoder(
+            L=self.L,
+            m=self.m,
+            c=self.c
+        )
+        
         # Train the model.
         model.compile(
             optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
@@ -87,26 +99,29 @@ class EncDecAD():
         )
         
         # Generate the reconstructions.
-        r_vn1 = model(x_vn1, training=False)
-        r_vn2 = model(x_vn2, training=False)
-        r_va = model(x_va, training=False)
+        rs_vn = model(xs_vn, training=False)
+        rs_va = model(xs_va, training=False)
 
+        # Transform the reconstructions back to the original scale.
+        rs_vn = x_min + (x_max - x_min) * rs_vn
+        rs_va = x_min + (x_max - x_min) * rs_va
+        
+        # Transform the reconstructions back to time series.
+        r_vn = sequences_to_time_series(rs_vn)
+        r_va = sequences_to_time_series(rs_va)
+        
         # Calculate the reconstruction errors.
-        e_vn1 = tf.math.abs(x_vn1 - r_vn1)
-        e_vn2 = tf.math.abs(x_vn2 - r_vn2)
+        e_vn = tf.math.abs(x_vn - r_vn)
         e_va = tf.math.abs(x_va - r_va)
 
         # Calculate the mean vector and covariance matrix.
-        mu, sigma = get_mu_and_sigma(x=sequences_to_time_series(e_vn1))
-
-        # Calculate the anomaly scores.
-        a_vn2 = get_anomaly_scores(e_vn2, mu, sigma)
-        a_va = get_anomaly_scores(e_va, mu, sigma)
-
-        # Find the best threshold.
+        mu = tf.reduce_mean(e_vn, axis=0, keepdims=True)
+        sigma = tf.matmul(e_vn - mu, e_vn - mu, transpose_a=True) / (len(e_vn) - 1)
+        
+        # Find the best anomaly threshold.
         tau = get_anomaly_threshold(
-            an=a_vn2,
-            aa=a_va,
+            a=get_anomaly_scores(e_va, mu, sigma),
+            y=ya,
             beta=self.beta,
             num=self.num
         )
@@ -120,102 +135,83 @@ class EncDecAD():
     
     def predict(self, x):
         
+        # Make sure that the length of the time series is a multiple of the sequence length.
+        x = tf.cast(x[:self.L * (len(x) // self.L)], tf.float32)
+        
         # Split the time series into sequences
-        x = time_series_to_sequences(x, self.L)
+        xs = time_series_to_sequences(x, L=self.L)
         
         # Scale the sequences.
-        x = (x - self.x_min) / (self.x_max - self.x_min)
+        xs = (xs - self.x_min) / (self.x_max - self.x_min)
         
         # Generate the reconstructions.
-        r = self.model(x, training=False)
+        rs = self.model(xs, training=False)
+        
+        # Transform the reconstructions back to the original scale.
+        rs = self.x_min + (self.x_max - self.x_min) * rs
+        
+        # Transform the reconstructions back to time series.
+        r = sequences_to_time_series(rs)
         
         # Calculate the reconstruction errors.
         e = tf.math.abs(x - r)
 
         # Calculate the anomaly scores.
         a = get_anomaly_scores(e, self.mu, self.sigma)
-
-        # Calculate the anomaly labels.
-        y = get_anomaly_labels(a, self.tau)
         
-        # Transform the reconstructions back to the original scale.
-        r = self.x_min + (self.x_max - self.x_min) * r
-
-        # Transform the sequences back to time series.
-        r = sequences_to_time_series(r)
-        a = sequences_to_time_series(a)
-        y = np.concatenate([np.repeat(y[i], repeats=self.L, axis=0) for i in range(y.shape[0])], axis=0)
+        # Derive the anomaly labels.
+        y = get_anomaly_labels(a, self.tau).numpy()
         
         return r, a, y
 
 
 def time_series_to_sequences(x, L):
     # Split the time series into sequences.
-    if len(x) % L == 0:
-        return np.array([x[i - L: i] for i in range(L, L * len(x) // L + L, L)])
-    else:
-        return np.array([x[i - L: i] for i in range(L, L * len(x) // L, L)])
+    return tf.concat([tf.expand_dims(x[i - L: i], axis=0) for i in range(L, L * (len(x) // L) + L, L)], axis=0)
 
 
 def sequences_to_time_series(x):
     # Transform the sequences back to time series.
-    return np.concatenate([x[i] for i in range(len(x))])
+    return tf.concat([x[i] for i in range(len(x))], axis=0)
 
 
 def reverse_sequences(x):
     # Reverse the order of the sequences.
-    return np.concatenate([np.expand_dims(np.flip(x[i], axis=0), axis=0) for i in range(len(x))], axis=0)
-
-
-def get_mu_and_sigma(x):
-    # Calculate the mean vector and covariance matrix.
-    mu = tf.reduce_mean(x, axis=0, keepdims=True)
-    sigma = tf.divide(tf.matmul(x - tf.reduce_mean(x, axis=0), x - tf.reduce_mean(x, axis=0), transpose_a=True), x.shape[0] - 1)
-    return mu, sigma
+    return tf.reverse(x, axis=[1])
 
 
 def get_anomaly_scores(x, mu, sigma):
     # Calculate the anomaly scores.
-    fn = lambda x: tf.squeeze(tf.matmul(tf.matmul(x - mu, tf.linalg.inv(sigma)), x - mu, transpose_b=True))
-    return tf.transpose([tf.map_fn(elems=x[:, i, :], fn=fn) for i in range(x.shape[1])], perm=(1, 0))
+    return tf.map_fn(elems=x, fn=lambda x: tf.squeeze(tf.matmul(tf.matmul(x - mu, tf.linalg.inv(sigma)), x - mu, transpose_b=True)))
 
 
 def get_anomaly_labels(a, tau):
     # Derive the anomaly labels.
-    return tf.where(tf.reduce_any(a > tau, axis=1, keepdims=True), 1., 0.)
-    
+    return tf.where(a > tau, 1., 0.)
 
-def get_anomaly_threshold(an, aa, beta, num):
+
+def get_anomaly_threshold(a, y, beta, num):
     
-    # Concatenate the anomaly scores.
-    a = tf.concat([an, aa], axis=0)
+    scores = []
     
     # Define the list of thresholds.
-    taus = tf.linspace(start=tf.reduce_min(a), stop=tf.reduce_max(a), num=num)
-
-    # Instantiate the F-beta scorer.
-    scorer = tf.metrics.FBetaScore(beta=beta)
-    
-    # Create a tensor for storing the F-beta scores of the thresholds.
-    scores = tf.TensorArray(
-        element_shape=(),
-        size=num,
-        dynamic_size=False,
-        dtype=tf.float32,
-        clear_after_read=False
-    )
-    
-    # Derive the ground-truth anomaly labels.
-    y_true = tf.concat([tf.zeros((an.shape[0], 1)), tf.ones((aa.shape[0], 1))], axis=0)
+    thresholds = tf.linspace(start=float(0), stop=tf.reduce_max(a), num=num)
     
     # Loop across the thresholds.
     for i in tf.range(start=0, limit=num, delta=1):
         
         # Derive the predicted anomaly labels.
-        y_pred = get_anomaly_labels(a, tau=taus[i])
+        yhat = get_anomaly_labels(a, tau=thresholds[i]).numpy()
         
         # Calculate and save the F-beta score.
-        scores = scores.write(index=i, value=tf.squeeze(scorer(y_true, y_pred)))
+        scores.append(fbeta_score(y_true=y, y_pred=yhat, beta=beta))
     
-    # Return the threshold with the maximum F-beta score.
-    return taus[tf.argmax(scores.stack())]
+    scores = tf.cast(scores, tf.float32)
+
+    # Extract the best score.
+    best_score = scores[tf.argmax(scores)]
+    print(f'Best score: {format(best_score.numpy(), ".6f")}')
+    
+    # Extract and return the best threshold.
+    best_threshold = thresholds[tf.argmax(scores)]
+    return best_threshold
