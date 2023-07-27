@@ -34,17 +34,20 @@ class EncDecAD():
         Train the model.
         '''
        
-        # Process the (unlabelled) normal time series.
+        # Process the normal time series.
         x_sn = tf.cast(xn[:int(train_size * len(xn))], dtype=tf.float32)
         x_vn = tf.cast(xn[int(train_size * len(xn)):], dtype=tf.float32)
+        y_vn = tf.zeros(len(x_vn), dtype=tf.float32)
         
-        # Process the (labelled) anomalous time series.
+        # Process the anomalous time series.
         x_va = tf.cast(xa, dtype=tf.float32)
+        y_va = tf.cast(ya, dtype=tf.float32)
         
         # Make sure that the length of the time series is a multiple of the sequence length.
-        x_sn = tf.cast(x_sn[:self.L * (len(x_sn) // self.L)], dtype=tf.float32)
-        x_vn = tf.cast(x_vn[:self.L * (len(x_vn) // self.L)], dtype=tf.float32)
-        x_va = tf.cast(x_va[:self.L * (len(x_va) // self.L)], dtype=tf.float32)
+        x_sn = x_sn[:self.L * (len(x_sn) // self.L)]
+        x_vn = x_vn[:self.L * (len(x_vn) // self.L)]
+        x_va = x_va[:self.L * (len(x_va) // self.L)]
+        y_va = y_va[:self.L * (len(y_va) // self.L)]
         
         # Split the time series into sequences.
         xs_sn = time_series_to_sequences(x_sn, L=self.L)
@@ -118,10 +121,14 @@ class EncDecAD():
         mu = tf.reduce_mean(e_vn, axis=0, keepdims=True)
         sigma = tf.matmul(e_vn - mu, e_vn - mu, transpose_a=True) / (len(e_vn) - 1)
         
+        # Calculate the anomaly scores.
+        a_va = get_anomaly_scores(e_va, mu, sigma)
+        a_vn = get_anomaly_scores(e_vn, mu, sigma)
+        
         # Find the best anomaly threshold.
         tau = get_anomaly_threshold(
-            a=get_anomaly_scores(e_va, mu, sigma),
-            y=ya,
+            a=tf.concat([a_va, a_vn], axis=0),
+            y=tf.concat([y_va, y_vn], axis=0),
             beta=self.beta,
             num=self.num
         )
@@ -192,7 +199,14 @@ def get_anomaly_labels(a, tau):
 
 def get_anomaly_threshold(a, y, beta, num):
     
-    scores = []
+    # Create a tensor for storing the F-beta scores of the thresholds.
+    scores = tf.TensorArray(
+        element_shape=(),
+        size=num,
+        dynamic_size=False,
+        dtype=tf.float32,
+        clear_after_read=False
+    )
     
     # Define the list of thresholds.
     thresholds = tf.linspace(start=float(0), stop=tf.reduce_max(a), num=num)
@@ -204,10 +218,10 @@ def get_anomaly_threshold(a, y, beta, num):
         yhat = get_anomaly_labels(a, tau=thresholds[i]).numpy()
         
         # Calculate and save the F-beta score.
-        scores.append(fbeta_score(y_true=y, y_pred=yhat, beta=beta))
+        scores = scores.write(index=i, value=fbeta_score(y_true=y, y_pred=yhat, beta=beta))
     
-    scores = tf.cast(scores, tf.float32)
-
+    scores = scores.stack()
+    
     # Extract the best score.
     best_score = scores[tf.argmax(scores)]
     print(f'Best score: {format(best_score.numpy(), ".6f")}')
