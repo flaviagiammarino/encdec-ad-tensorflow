@@ -49,7 +49,7 @@ ya_train, ya_test = ya[:int(train_size * len(ya))], ya[int(train_size * len(ya))
 model = EncDecAD(
     m=m,          # Number of time series.
     L=100,        # Number of time steps.
-    c=128,        # Number of hidden units.
+    c=64,         # Number of hidden units.
     beta=1        # F-score beta.
 )
 
@@ -57,12 +57,11 @@ model.fit(
     xn_train,
     xa_train,
     ya_train,
-    train_size=train_size,
     learning_rate=0.0001,
-    batch_size=64,
+    batch_size=32,
     max_epochs=100,
-    early_stopping_start_epoch=50,
-    early_stopping_patience=5,
+    early_stopping_start_epoch=10,
+    early_stopping_patience=10,
     verbose=1
 )
 

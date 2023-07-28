@@ -48,6 +48,7 @@ class EncDecAD():
         x_sn = x_sn[:self.L * (len(x_sn) // self.L)]
         x_vn1 = x_vn1[:self.L * (len(x_vn1) // self.L)]
         x_vn2 = x_vn2[:self.L * (len(x_vn2) // self.L)]
+        y_vn2 = y_vn2[:self.L * (len(y_vn2) // self.L)]
         x_va = x_va[:self.L * (len(x_va) // self.L)]
         y_va = y_va[:self.L * (len(y_va) // self.L)]
         
