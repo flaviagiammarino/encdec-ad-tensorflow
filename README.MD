@@ -8,7 +8,6 @@ Anand, G., Vig, L., Agarwal, P. and Shroff, G., 2016. LSTM-based encoder-decoder
 
 ## Dependencies
 ```bash
-pandas==2.0.3
 numpy==1.24.3
 tensorflow==2.13.0
 plotly==5.15.0
