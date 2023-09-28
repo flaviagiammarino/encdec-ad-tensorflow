@@ -23,10 +23,11 @@ from encdec_ad_tensorflow.model import EncDecAD
 from encdec_ad_tensorflow.plots import plot
 
 m = 2             # Number of time series.
-N = 10000         # Length of each time series.
+N = 5000          # Length of each time series.
 train_size = 0.5  # Fraction of observations to use for training.
 
 # Generate the normal time series.
+np.random.seed(42)
 t = np.linspace(0, 1, N).reshape(-1, 1)
 c = np.cos(2 * np.pi * (50 * t - 0.5))
 s = np.sin(2 * np.pi * (100 * t - 0.5))
@@ -35,11 +36,9 @@ xn = 10 * c + 10 * s + np.random.normal(size=(N, m))
 # Generate the anomalous time series.
 xa = xn.copy()
 ya = np.zeros(N)
-for j in range(N):
-    if np.random.uniform() > 0.997:
-        xa[j, :] += np.random.randint(low=30, high=70, size=m)
-        xa[j, :] *= np.random.choice([-1, 1], size=m)
-        ya[j] = 1
+for j in np.random.randint(low=20, high=N - 20, size=20):
+    xa[j, :] = np.random.choice([-200, 200], size=m)
+    ya[j] = 1
 
 # Split the time series.
 xn_train, xn_test = xn[:int(train_size * len(xn))], xn[int(train_size * len(xn)):]
@@ -48,20 +47,20 @@ ya_train, ya_test = ya[:int(train_size * len(ya))], ya[int(train_size * len(ya))
 
 # Fit the model.
 model = EncDecAD(
-    m=m,          # Number of time series.
-    L=200,        # Number of time steps.
-    c=64,         # Number of hidden units.
-    beta=1        # F-score beta.
+    m=m,       # Number of time series.
+    L=100,     # Number of time steps.
+    c=64,      # Number of hidden units.
+    d=0.3,     # Dropout rate.
 )
 
 model.fit(
     xn_train,
     xa_train,
     ya_train,
-    learning_rate=0.0001,
-    batch_size=32,
-    max_epochs=100,
-    early_stopping_start_epoch=10,
+    learning_rate=0.001,
+    batch_size=128,
+    max_epochs=300,
+    early_stopping_start_epoch=100,
     early_stopping_patience=10,
     verbose=1
 )

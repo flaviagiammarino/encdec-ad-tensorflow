@@ -5,7 +5,7 @@ from encdec_ad_tensorflow.modules import EncoderDecoder
 
 class EncDecAD():
     
-    def __init__(self, m, L=10, c=100, beta=0.1, num=100):
+    def __init__(self, m, L=10, c=100, d=0, beta=1, num=100):
     
         '''
         Implementation of multivariate time series anomaly detection model introduced in Malhotra, P., Ramakrishnan, A.,
@@ -14,6 +14,7 @@ class EncDecAD():
         
         self.m = m
         self.c = c
+        self.d = d
         self.L = L
         self.beta = float(beta)
         self.num = num
@@ -44,8 +45,17 @@ class EncDecAD():
         x_va = tf.cast(xa, dtype=tf.float32)
         y_va = tf.cast(ya, dtype=tf.float32)
         
+        # Calculate the scaling factors.
+        x_min = tf.reduce_min(x_sn, axis=0, keepdims=True)
+        x_max = tf.reduce_max(x_sn, axis=0, keepdims=True)
+
+        # Scale the time series.
+        x_sn = (x_sn - x_min) / (x_max - x_min)
+        x_vn1 = (x_vn1 - x_min) / (x_max - x_min)
+        x_vn2 = (x_vn2 - x_min) / (x_max - x_min)
+        x_va = (x_va - x_min) / (x_max - x_min)
+        
         # Make sure that the length of the time series is a multiple of the sequence length.
-        x_sn = x_sn[:self.L * (len(x_sn) // self.L)]
         x_vn1 = x_vn1[:self.L * (len(x_vn1) // self.L)]
         x_vn2 = x_vn2[:self.L * (len(x_vn2) // self.L)]
         y_vn2 = y_vn2[:self.L * (len(y_vn2) // self.L)]
@@ -53,34 +63,25 @@ class EncDecAD():
         y_va = y_va[:self.L * (len(y_va) // self.L)]
         
         # Split the time series into sequences.
-        xs_sn = time_series_to_sequences(x_sn, L=self.L)
-        xs_vn1 = time_series_to_sequences(x_vn1, L=self.L)
-        xs_vn2 = time_series_to_sequences(x_vn2, L=self.L)
-        xs_va = time_series_to_sequences(x_va, L=self.L)
+        xs_sn = time_series_to_sequences(x_sn, L=self.L, S=1)
+        xs_vn1 = time_series_to_sequences(x_vn1, L=self.L, S=self.L)
+        xs_vn2 = time_series_to_sequences(x_vn2, L=self.L, S=self.L)
+        xs_va = time_series_to_sequences(x_va, L=self.L, S=self.L)
 
-        # Calculate the scaling factors.
-        x_min = tf.reduce_min(xs_sn, axis=0, keepdims=True)
-        x_max = tf.reduce_max(xs_sn, axis=0, keepdims=True)
-
-        # Scale the time series.
-        xs_sn = (xs_sn - x_min) / (x_max - x_min)
-        xs_vn1 = (xs_vn1 - x_min) / (x_max - x_min)
-        xs_vn2 = (xs_vn2 - x_min) / (x_max - x_min)
-        xs_va = (xs_va - x_min) / (x_max - x_min)
-        
         # Build the training dataset.
-        train_dataset = tf.data.Dataset.from_tensor_slices((xs_sn, reverse_sequences(xs_sn)))
+        train_dataset = tf.data.Dataset.from_tensor_slices((xs_sn, xs_sn))
         train_dataset = train_dataset.cache().shuffle(len(xs_sn)).batch(batch_size).prefetch(tf.data.experimental.AUTOTUNE)
 
         # Build the validation dataset.
-        valid_dataset = tf.data.Dataset.from_tensor_slices((xs_vn1, reverse_sequences(xs_vn1)))
+        valid_dataset = tf.data.Dataset.from_tensor_slices((xs_vn1, xs_vn1))
         valid_dataset = valid_dataset.batch(batch_size)
         
         # Build the model.
         model = EncoderDecoder(
-            L=self.L,
-            m=self.m,
-            c=self.c
+            L=self.L,  # input length
+            m=self.m,  # input size
+            c=self.c,  # hidden size
+            d=self.d   # dropout rate
         )
         
         # Train the model.
@@ -110,11 +111,6 @@ class EncDecAD():
         rs_vn1 = model(xs_vn1, training=False)
         rs_vn2 = model(xs_vn2, training=False)
         rs_va = model(xs_va, training=False)
-
-        # Transform the reconstructions back to the original scale.
-        rs_vn1 = x_min + (x_max - x_min) * rs_vn1
-        rs_vn2 = x_min + (x_max - x_min) * rs_vn2
-        rs_va = x_min + (x_max - x_min) * rs_va
         
         # Transform the reconstructions back to time series.
         r_vn1 = sequences_to_time_series(rs_vn1)
@@ -151,20 +147,17 @@ class EncDecAD():
     
     def predict(self, x):
         
+        # Scale the time series.
+        x = (x - self.x_min) / (self.x_max - self.x_min)
+        
         # Make sure that the length of the time series is a multiple of the sequence length.
         x = tf.cast(x[:self.L * (len(x) // self.L)], tf.float32)
         
         # Split the time series into sequences
-        xs = time_series_to_sequences(x, L=self.L)
-        
-        # Scale the sequences.
-        xs = (xs - self.x_min) / (self.x_max - self.x_min)
+        xs = time_series_to_sequences(x, L=self.L, S=self.L)
         
         # Generate the reconstructions.
         rs = self.model(xs, training=False)
-        
-        # Transform the reconstructions back to the original scale.
-        rs = self.x_min + (self.x_max - self.x_min) * rs
         
         # Transform the reconstructions back to time series.
         r = sequences_to_time_series(rs)
@@ -172,6 +165,9 @@ class EncDecAD():
         # Calculate the reconstruction errors.
         e = tf.math.abs(x - r)
 
+        # Transform the reconstructions back to the original scale.
+        r = self.x_min + (self.x_max - self.x_min) * r
+        
         # Calculate the anomaly scores.
         a = get_anomaly_scores(e, self.mu, self.sigma)
         
@@ -181,19 +177,14 @@ class EncDecAD():
         return r, a, y
 
 
-def time_series_to_sequences(x, L):
+def time_series_to_sequences(x, L, S):
     # Split the time series into sequences.
-    return tf.concat([tf.expand_dims(x[i - L: i], axis=0) for i in range(L, L * (len(x) // L) + L, L)], axis=0)
+    return tf.concat([tf.expand_dims(x[i - L: i], axis=0) for i in range(L, len(x) + S, S)], axis=0)
 
 
 def sequences_to_time_series(x):
     # Transform the sequences back to time series.
-    return tf.concat([x[i] for i in range(len(x))], axis=0)
-
-
-def reverse_sequences(x):
-    # Reverse the order of the sequences.
-    return tf.reverse(x, axis=[1])
+    return tf.reshape(x, (x.shape[0] * x.shape[1], x.shape[2]))
 
 
 def get_anomaly_scores(x, mu, sigma):
