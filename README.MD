@@ -22,7 +22,7 @@ plotly==5.15.0
 kaleido==0.2.1
 ```
 ## Usage
-```python buttonless
+```python
 import numpy as np
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 
