@@ -1,4 +1,8 @@
-<style> #zeroclipboard-container { display:none } </style>
+<style> 
+    .zeroclipboard-container{
+        display: none !important
+    } 
+</style>
 
 # EncDec-AD TensorFlow
 
