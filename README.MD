@@ -1,9 +1,3 @@
-<style> 
-    .zeroclipboard-container{
-        display: none !important
-    } 
-</style>
-
 # EncDec-AD TensorFlow
 
 ![license](https://img.shields.io/github/license/flaviagiammarino/encdec-ad-tensorflow)
