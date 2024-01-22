@@ -9,7 +9,7 @@ TensorFlow implementation of multivariate time series anomaly detection model in
 Anand, G., Vig, L., Agarwal, P. and Shroff, G., 2016. LSTM-based encoder-decoder for multi-sensor anomaly detection,
 [doi: 10.48550/arXiv.1607.00148](https://doi.org/10.48550/arXiv.1607.00148).
 
-<img src=diagram.png style="width:60%;margin-top:60px;margin-bottom:50px"/>
+<img src=diagram.png style="width:70%;margin-top:60px;margin-bottom:50px"/>
 
 *Model architecture (source: [doi: 10.48550/arXiv.1607.00148](https://doi.org/10.48550/arXiv.1607.00148))*
 
